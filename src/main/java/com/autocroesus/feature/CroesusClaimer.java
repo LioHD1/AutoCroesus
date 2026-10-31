@@ -98,9 +98,9 @@ public class CroesusClaimer {
 
    private static void tickKillSwitch(Minecraft mc) {
       if (autoClaiming || kismetSweeping) {
-         if (!InputConstants.isKeyDown(mc.getWindow(), 340)
-                 && !InputConstants.isKeyDown(mc.getWindow(), 344)
-                 && !InputConstants.isKeyDown(mc.getWindow(), 256)) {
+         if (!InputConstants.isKeyDown(340)
+                 && !InputConstants.isKeyDown(344)
+                 && !InputConstants.isKeyDown(256)) {
             String title = getScreenTitle(mc);
             if (title.isEmpty() && !prevScreenTitle.isEmpty()) {
                boolean prevWasOurs = prevScreenTitle.contains("Croesus") || RUN_GUI_PATTERN.matcher(prevScreenTitle).matches();
