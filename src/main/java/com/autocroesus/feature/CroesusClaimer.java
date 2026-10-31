@@ -8,13 +8,13 @@ import com.autocroesus.util.LootLogger;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
+import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.decoration.ArmorStand;
 import net.minecraft.world.inventory.AbstractContainerMenu;
@@ -52,12 +52,9 @@ public class CroesusClaimer {
    private static boolean prevWasInCroesus = false;
    private static long croesusEnteredAt = 0L;
    private static boolean tryingToKismet = false;
-   private static boolean canKismet = true;
    private static long kismetSlotEmptyAt = 0L;
-   private static boolean anyRunsClaimed = false;
    private static boolean needsToLeaveRunGui = false;
    private static boolean worthlessEmptyWarned = false;
-   private static final Set<String> skippedKismetFloors = new LinkedHashSet<>();
    private static long lastClick = 0L;
    private static int indexToClick = -1;
    private static long waitFlagSetAt = 0L;
@@ -76,6 +73,15 @@ public class CroesusClaimer {
 
    public static void register() {
       ClientTickEvents.END_CLIENT_TICK.register(CroesusClaimer::onTick);
+      ClientReceiveMessageEvents.GAME.register(CroesusClaimer::onGameMessage);
+   }
+
+   private static void onGameMessage(Component message, boolean overlay) {
+      if ((autoClaiming || kismetSweeping)
+              && ColorUtil.stripColors(message.getString()).contains("couldn't be stashed because you hit the item stash limit")) {
+         ChatUtil.msg("§cItem stash limit hit §f— stopping.");
+         reset();
+      }
    }
 
    private static void onTick(Minecraft mc) {
@@ -95,7 +101,7 @@ public class CroesusClaimer {
          if (!InputConstants.isKeyDown(mc.getWindow(), 340)
                  && !InputConstants.isKeyDown(mc.getWindow(), 344)
                  && !InputConstants.isKeyDown(mc.getWindow(), 256)) {
-            String title = mc.screen != null ? getScreenTitle(mc) : "";
+            String title = getScreenTitle(mc);
             if (title.isEmpty() && !prevScreenTitle.isEmpty()) {
                boolean prevWasOurs = prevScreenTitle.contains("Croesus") || RUN_GUI_PATTERN.matcher(prevScreenTitle).matches();
                if (prevWasOurs && !waitingForRunToOpen && !waitingForChestToOpen) {
@@ -167,7 +173,7 @@ public class CroesusClaimer {
       if (nowInCroesus) {
          if ((autoClaiming || kismetSweeping) && !waitingForRunToOpen) {
             waitingForCroesus = false;
-            if (System.currentTimeMillis() - croesusEnteredAt >= 300L) {
+            if (System.currentTimeMillis() - croesusEnteredAt >= 300L && isInvLoaded(mc, player)) {
                if (claimRunSlot < 0) {
                   resetClaimInfo();
                }
@@ -222,32 +228,7 @@ public class CroesusClaimer {
                         }
                      } else {
                         if (kismetSweeping) {
-                           if (!canKismet) {
-                              ChatUtil.msg("§eKismet sweep stopped §f— out of Kismet Feathers.");
-                           } else {
-                              ChatUtil.msg("§aKismet sweep complete!");
-                           }
-                        } else if (!canKismet) {
-                           StringBuilder fb = new StringBuilder();
-
-                           for (String f : skippedKismetFloors) {
-                              if (!fb.isEmpty()) {
-                                 fb.append("§f, ");
-                              }
-
-                              fb.append(fmtFloor(f));
-                           }
-
-                           String floors = fb.toString();
-                           if (anyRunsClaimed) {
-                              ChatUtil.msg("§eSome chests looted! §fKismets needed for: " + floors);
-                           } else {
-                              ChatUtil.msg(
-                                      "§eCould not find kismets. §fAuto claiming for "
-                                              + floors
-                                              + " §fis disabled until kismetting is turned off or kismets are available to use."
-                              );
-                           }
+                           ChatUtil.msg("§aKismet sweep complete!");
                         } else {
                            ChatUtil.msg("§aAll chests looted!");
                         }
@@ -283,9 +264,6 @@ public class CroesusClaimer {
             resetClaimInfo();
          }
       } else if (isInvLoaded(mc, player)) {
-         if (claimRunSlot < 0) {
-            return;
-         }
          if (!waitingForChestToOpen) {
             waitingForRunToOpen = false;
             lastPageOn = -1;
@@ -345,6 +323,7 @@ public class CroesusClaimer {
                            if (errorOut[0] == null) {
                               continue;
                            }
+
                            if (autoClaiming || kismetSweeping) {
                               String chestColor = CHEST_COLORS.getOrDefault(chestName, "§f");
                               ChatUtil.msg(
@@ -410,7 +389,6 @@ public class CroesusClaimer {
                      boolean hasAlwaysBuyItem = bedrockChest != null && bedrockChest.items.stream().anyMatch(item -> AcDataStore.alwaysBuy.contains(item.id));
                      if (!hasAlwaysBuyItem
                              && !claimSkipKismet
-                             && canKismet
                              && AcDataStore.config.useKismets
                              && bedrockChest != null
                              && AcDataStore.config.kismetFloors.contains(claimFloor)
@@ -442,7 +420,6 @@ public class CroesusClaimer {
                               LootLogger.logLoot(claimFloor, chestsToClaim, totalChestCount);
                            }
 
-                           anyRunsClaimed = true;
                            indexToClick = bestChest.slot;
                            waitingForChestToOpen = true;
                            waitFlagSetAt = System.currentTimeMillis();
@@ -495,13 +472,6 @@ public class CroesusClaimer {
       if (claimSkipKismet) {
          resetClaimInfo();
          indexToClick = 30;
-         return;
-      }
-
-      if (!canKismet) {
-         ChatUtil.msg("§eKismet sweep stopped §f— out of Kismet Feathers.");
-         failedIndexes.add(extendedIndex);
-         reset();
          return;
       }
 
@@ -565,14 +535,9 @@ public class CroesusClaimer {
                   }
 
                   if (noKismet) {
-                     canKismet = false;
-                     skippedKismetFloors.add(claimFloor);
+                     ChatUtil.msg("§eOut of Kismet Feathers on " + fmtFloor(claimFloor) + " §f— stopping.");
                      failedIndexes.add(claimRunSlot + (claimPage - 1) * 54);
-                     resetClaimInfo();
-                     needsToLeaveRunGui = true;
-                     indexToClick = 49;
-                     waitingForRunToOpen = true;
-                     waitFlagSetAt = System.currentTimeMillis();
+                     reset();
                   } else {
                      claimSkipKismet = true;
                      indexToClick = 50;
@@ -615,12 +580,9 @@ public class CroesusClaimer {
       pageChangedAt = 0L;
       indexToClick = -1;
       tryingToKismet = false;
-      canKismet = true;
       kismetSlotEmptyAt = 0L;
       worthlessEmptyWarned = false;
-      anyRunsClaimed = false;
       needsToLeaveRunGui = false;
-      skippedKismetFloors.clear();
       waitFlagSetAt = 0L;
       startAttemptSetAt = 0L;
       prevScreenTitle = "";
@@ -640,12 +602,10 @@ public class CroesusClaimer {
    private static void closeAnyOpenScreen() {
       Minecraft mc = Minecraft.getInstance();
       if (mc.player != null) {
-         if (mc.screen != null) {
-            mc.setScreen(null);
-         }
-
          if (mc.player.containerMenu != mc.player.inventoryMenu) {
             mc.player.closeContainer();
+         } else if (mc.gui.screen() != null) {
+            mc.gui.setScreen(null);
          }
       }
    }
@@ -720,7 +680,8 @@ public class CroesusClaimer {
    }
 
    private static String getScreenTitle(Minecraft mc) {
-      return mc.screen == null ? "" : ColorUtil.stripColors(mc.screen.getTitle().getString());
+      Screen screen = mc.gui.screen();
+      return screen == null ? "" : ColorUtil.stripColors(screen.getTitle().getString());
    }
 
    private static boolean inCroesus(Minecraft mc) {
@@ -736,7 +697,7 @@ public class CroesusClaimer {
    }
 
    private static boolean isInvLoaded(Minecraft mc, AbstractClientPlayer player) {
-      if (mc.screen == null) {
+      if (mc.gui.screen() == null) {
          return false;
       }
 
@@ -802,13 +763,7 @@ public class CroesusClaimer {
                         floorNum = ItemParser.decodeRoman(floorStr);
                      }
 
-                     String floorKey = (isMaster ? "M" : "F") + floorNum;
-                     if (canKismet || !AcDataStore.config.kismetFloors.contains(floorKey)) {
-                        return new int[]{slotIdx, floorNum, isMaster ? 1 : 0};
-                     }
-
-                     skippedKismetFloors.add(floorKey);
-                     failedIndexes.add(extendedIndex);
+                     return new int[]{slotIdx, floorNum, isMaster ? 1 : 0};
                   }
                }
             }

@@ -13,7 +13,7 @@ public class ChatUtil {
       if (mc.player != null) {
          mc.player.sendSystemMessage(component);
       } else if (mc.level != null) {
-         mc.gui.getChat().addClientSystemMessage(component);
+         mc.gui.hud.getChat().addClientSystemMessage(component);
       }
    }
 }
