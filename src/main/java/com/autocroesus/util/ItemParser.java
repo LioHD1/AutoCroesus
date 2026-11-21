@@ -42,7 +42,7 @@ public class ItemParser {
    private static final Map<String, Double> SHINY_WITHER_FIXED_VALUES = new HashMap<>();
    private static final Map<String, String> SHINY_WITHER_FIXED_IDS = new HashMap<>();
    private static final Pattern BOOK_PATTERN = Pattern.compile("Enchanted Book \\((?:§.)*([\\w' ]+?) ([IVX]+|\\d+)(?:§.)*\\)");
-   private static final Pattern ESSENCE_PATTERN = Pattern.compile("^(\\w+) Essence x(\\d+)$");
+   private static final Pattern ESSENCE_PATTERN = Pattern.compile("^(\\w+) Essence(?: x(\\d+))?$");
    private static final Pattern COST_PATTERN = Pattern.compile("^([\\d,]+) Coins$");
    private static final Pattern PET_LORE_PATTERN = Pattern.compile("^\\[Lvl \\d+] (.+)$");
    private static final Map<String, String> COLOR_TO_RARITY = new LinkedHashMap<>();
@@ -99,7 +99,12 @@ public class ItemParser {
 
    private static String[] tryParseEssence(String line) {
       Matcher m = ESSENCE_PATTERN.matcher(line);
-      return !m.matches() ? null : new String[]{"ESSENCE_" + m.group(1).toUpperCase(), m.group(2)};
+      if (!m.matches()) {
+         return null;
+      }
+
+      String qty = m.group(2) != null ? m.group(2) : "1";
+      return new String[]{"ESSENCE_" + m.group(1).toUpperCase(), qty};
    }
 
    private static String[] tryParsePet(String rawLine, String cleanLine) {
@@ -158,9 +163,14 @@ public class ItemParser {
          }
       }
 
+      StringBuilder codes = new StringBuilder();
+      for (char c : clean.toCharArray()) {
+         codes.append(c < 32 || c > 126 ? String.format("\\u%04x", (int) c) : String.valueOf(c));
+      }
+
       String hint = AcDataStore.sbItems.isEmpty()
-         ? " (SkyBlock items API not loaded — run //ac api)"
-         : " (not in book/essence/pet/item list — may be a new or renamed item)";
+              ? " (SkyBlock items API not loaded — run //ac api)"
+              : " (not in book/essence/pet/item list — may be a new or renamed item) raw=[" + codes + "]";
       return new String[]{"false", "Could not find item ID for \"" + clean + "\"" + hint};
    }
 

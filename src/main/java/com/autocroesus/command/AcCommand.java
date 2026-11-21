@@ -102,33 +102,49 @@ public class AcCommand {
       }
    }
 
+   private static void refreshPrices(Runnable onSuccess) {
+      net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
+      PriceFetcher.updatePrices().whenComplete((warning, error) -> mc.execute(() -> {
+         if (error != null) {
+            Throwable cause = error.getCause() != null ? error.getCause() : error;
+            ChatUtil.msg("§c[Error 107] §fFailed to grab data from API: " + cause.getMessage());
+            ChatUtil.msg("§cTo try again, run //ac api");
+            return;
+         }
+
+         if (warning != null) {
+            ChatUtil.msg(warning);
+            ChatUtil.msg("§cPrices were NOT updated, so I'm not continuing. Run §f//ac forcego §cor §f//ac forcek §cto use cached prices anyway.");
+            return;
+         }
+
+         AcDataStore.config.lastApiUpdate = System.currentTimeMillis();
+         AcDataStore.saveConfig();
+         ChatUtil.msg("§aSuccessfully grabbed data from API!");
+         if (onSuccess != null) {
+            onSuccess.run();
+         }
+      }));
+   }
+
+   private static void cmdApi() {
+      ChatUtil.msg("§aGrabbing data...");
+      refreshPrices(null);
+   }
+
    private static void cmdGo(boolean force) {
       if (force) {
          ChatUtil.msg("§aClaiming without updating API.");
          CroesusClaimer.startAutoClaiming();
-      } else {
-         long sinceUpdate = System.currentTimeMillis() - AcDataStore.config.lastApiUpdate;
-         if (sinceUpdate <= 1800000L) {
-            CroesusClaimer.startAutoClaiming();
-         } else {
-            ChatUtil.msg("§ePrices have not been updated in over 30 minutes. Grabbing data...");
-            PriceFetcher.updatePrices().thenAccept(warning -> {
-               long prevUpdate = AcDataStore.config.lastApiUpdate;
-               AcDataStore.config.lastApiUpdate = System.currentTimeMillis();
-               AcDataStore.saveConfig();
-               if (warning != null && System.currentTimeMillis() - prevUpdate > 3600000L) {
-                  ChatUtil.msg(warning);
-               }
+         return;
+      }
 
-               ChatUtil.msg("§aSuccessfully grabbed data from API!");
-               CroesusClaimer.startAutoClaiming();
-            }).exceptionally(e -> {
-               Throwable cause = e.getCause() != null ? e.getCause() : e;
-               ChatUtil.msg("§c[Error 107] §fFailed to grab data from API: " + cause.getMessage());
-               ChatUtil.msg("§cTo try again, run //ac api");
-               return null;
-            });
-         }
+      long sinceUpdate = System.currentTimeMillis() - AcDataStore.config.lastApiUpdate;
+      if (sinceUpdate <= 1800000L) {
+         CroesusClaimer.startAutoClaiming();
+      } else {
+         ChatUtil.msg("§ePrices have not been updated in over 30 minutes. Grabbing data...");
+         refreshPrices(CroesusClaimer::startAutoClaiming);
       }
    }
 
@@ -136,49 +152,16 @@ public class AcCommand {
       if (force) {
          ChatUtil.msg("§aKismet sweeping without updating API.");
          CroesusClaimer.startKismetSweep();
-      } else {
-         long sinceUpdate = System.currentTimeMillis() - AcDataStore.config.lastApiUpdate;
-         if (sinceUpdate <= 1800000L) {
-            CroesusClaimer.startKismetSweep();
-         } else {
-            ChatUtil.msg("§ePrices have not been updated in over 30 minutes. Grabbing data...");
-            PriceFetcher.updatePrices().thenAccept(warning -> {
-               long prevUpdate = AcDataStore.config.lastApiUpdate;
-               AcDataStore.config.lastApiUpdate = System.currentTimeMillis();
-               AcDataStore.saveConfig();
-               if (warning != null && System.currentTimeMillis() - prevUpdate > 3600000L) {
-                  ChatUtil.msg(warning);
-               }
-
-               ChatUtil.msg("§aSuccessfully grabbed data from API!");
-               CroesusClaimer.startKismetSweep();
-            }).exceptionally(e -> {
-               Throwable cause = e.getCause() != null ? e.getCause() : e;
-               ChatUtil.msg("§c[Error 107] §fFailed to grab data from API: " + cause.getMessage());
-               ChatUtil.msg("§cTo try again, run //ac api");
-               return null;
-            });
-         }
+         return;
       }
-   }
 
-   private static void cmdApi() {
-      ChatUtil.msg("§aGrabbing data...");
-      PriceFetcher.updatePrices().thenAccept(warning -> {
-         long prevUpdate = AcDataStore.config.lastApiUpdate;
-         AcDataStore.config.lastApiUpdate = System.currentTimeMillis();
-         AcDataStore.saveConfig();
-         if (warning != null && System.currentTimeMillis() - prevUpdate > 3600000L) {
-            ChatUtil.msg(warning);
-         }
-
-         ChatUtil.msg("§aSuccessfully grabbed data from API!");
-      }).exceptionally(e -> {
-         Throwable cause = e.getCause() != null ? e.getCause() : e;
-         ChatUtil.msg("§c[Error 107] §fFailed to grab data from API: " + cause.getMessage());
-         ChatUtil.msg("§cTo try again, run //ac api");
-         return null;
-      });
+      long sinceUpdate = System.currentTimeMillis() - AcDataStore.config.lastApiUpdate;
+      if (sinceUpdate <= 1800000L) {
+         CroesusClaimer.startKismetSweep();
+      } else {
+         ChatUtil.msg("§ePrices have not been updated in over 30 minutes. Grabbing data...");
+         refreshPrices(CroesusClaimer::startKismetSweep);
+      }
    }
 
    private static void cmdDelay(String[] args) {

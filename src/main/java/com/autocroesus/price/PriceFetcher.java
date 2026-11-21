@@ -1,6 +1,7 @@
 package com.autocroesus.price;
 
 import com.autocroesus.config.AcDataStore;
+import com.autocroesus.util.ChatUtil;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -21,6 +22,7 @@ public class PriceFetcher {
    private static final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
    private static final String PRICING_URL = "https://whatyouth.ing/api/nofrills/v2/economy/get-item-pricing/";
    private static final String ITEMS_URL = "https://api.hypixel.net/v2/resources/skyblock/items";
+   private static final String BAZAAR_URL = "https://api.hypixel.net/v2/skyblock/bazaar";
 
    private static CompletableFuture<String> fetchUrl(String url) {
       return HTTP.sendAsync(
@@ -72,7 +74,47 @@ public class PriceFetcher {
 
          String pricingBody = pricingSafe.join();
          if (pricingBody == null) {
-            return "§ePrices unavailable (" + pricingFailReason.get() + "). §fCached prices will be used. §7Run §f//ac api §7later to retry.";
+            try {
+               String bzBody = fetchUrl(BAZAAR_URL).join();
+               JsonObject bzResp = JsonParser.parseString(bzBody).getAsJsonObject();
+               if (!bzResp.get("success").getAsBoolean()) {
+                  throw new RuntimeException("Bazaar API returned success=false");
+               }
+
+               JsonObject products = bzResp.getAsJsonObject("products");
+               Map<String, AcDataStore.BzEntry> newBz = new HashMap<>();
+
+               for (Entry<String, JsonElement> e : products.entrySet()) {
+                  JsonObject qs = e.getValue().getAsJsonObject().getAsJsonObject("quick_status");
+                  double buy = qs.get("buyPrice").getAsDouble();   // what buyers pay (sell-order side)
+                  double sell = qs.get("sellPrice").getAsDouble(); // instant-sell side
+
+                  double sellOrder = buy;
+                  double instaSell = sell;
+
+                  // No sell offers: fall back to the instant-sell price
+                  if (sellOrder <= 0) sellOrder = instaSell;
+                  // No buy orders: nothing to instant-sell into, use the order price
+                  if (instaSell <= 0) instaSell = sellOrder;
+                  // Thin-book spike: cap the order price at 2x the instant-sell price
+                  if (instaSell > 0 && sellOrder > instaSell * 2.0) sellOrder = instaSell * 2.0;
+
+                  AcDataStore.BzEntry bz = new AcDataStore.BzEntry();
+                  bz.sellOrderValue = sellOrder;
+                  bz.instaSellValue = instaSell;
+                  newBz.put(e.getKey(), bz);
+               }
+
+               AcDataStore.updateBzValues(newBz);
+               final String reason = pricingFailReason.get();
+               net.minecraft.client.Minecraft.getInstance().execute(() ->
+                       ChatUtil.msg("§e" + reason + " §f— used Hypixel Bazaar API instead. §7BIN prices were not updated.")
+               );
+               return null;
+            } catch (Exception e) {
+               Throwable cause = e.getCause() != null ? e.getCause() : e;
+               return "§cPrices unavailable (" + pricingFailReason.get() + "), and Bazaar fallback failed (" + cause.getMessage() + ").";
+            }
          }
 
          try {

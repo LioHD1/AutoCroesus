@@ -274,6 +274,10 @@ public class CroesusClaimer {
                indexToClick = claimChestSlot;
                claimChestSlot = -1;
             } else {
+               if (claimRunSlot < 0) {
+                  return;
+               }
+
                AbstractContainerMenu menu = player.containerMenu;
                if ((autoClaiming || kismetSweeping) && !worthlessEmptyWarned && AcDataStore.worthless.isEmpty()) {
                   worthlessEmptyWarned = true;
